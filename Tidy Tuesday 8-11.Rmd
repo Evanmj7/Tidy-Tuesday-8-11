@@ -1,0 +1,127 @@
+---
+title: 'Avatar: The Last Airbender'
+author: "Evan Jonson"
+date: "8/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE,message = FALSE)
+# load required libraries
+library(pacman)
+p_load(tidyverse,tidytuesdayR,wordcloud,magrittr,hrbrthemes,tm,tidytext)
+
+```
+
+## Getting the Data
+
+First, we need to read in the data from the tidytuesdayR package. Then I chose to filter out scene direction by dropping all text without character spoken words.
+
+```{r data,results=FALSE}
+# Load in data
+
+tuesdata <- tidytuesdayR::tt_load('2020-08-11')
+tuesdata <- tidytuesdayR::tt_load(2020, week = 33)
+
+avatar <- tuesdata$avatar
+
+# Filter out scene direction
+avatar %<>% drop_na(character_words)
+
+```
+
+```{r head}
+head(avatar)
+```
+
+## Some Textual Analysis
+
+Now we can group by distinct books and chapters, and capture the words spoken by characters. Here I also remove stop words (i.e. common words that provide little additional information).
+
+After this, I create a graph of the top 15 most common words over the course of the series.
+
+```{r Text Analysis,echo=FALSE}
+text <- avatar %>%
+  distinct(book,chapter_num,character_words) %>% # Filter for distinct episodes and capture words spoken by characters
+  group_by(book)
+
+words <- text %>% 
+  unnest_tokens(word,character_words)
+
+# Get rid of stop words
+data("stop_words")
+
+tidy_words <- words %>% anti_join(stop_words)
+```
+
+```{r Graph 1}
+tidy_words %>% ungroup %>% count(word,sort=TRUE) %>%
+  slice(1:15) %>%
+  mutate(word = fct_reorder(word, n)) %>%
+  ggplot(aes(x=n,y=word)) +
+  geom_col() +
+  geom_text(aes(label=n),nudge_x=15) +
+  labs(title="Most Common Words in the Series",x="Count",y="Word") +
+  theme_ipsum() +
+  theme(plot.title = element_text(hjust = .5))
+
+```
+
+And a wordcloud for good measure! We do this by creating a word_count dataframe that contains a list of each word and their frequency.
+
+```{r wordcloud prep,echo=FALSE}
+word_count <- tidy_words %>% ungroup %>% count(word)
+
+set.seed(12345)
+
+```
+
+```{r wordcloud}
+wordcloud(words = word_count$word, freq = word_count$n, min.freq = 1,
+          max.words=125, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+
+```
+
+## IMDB Ratings Over Time
+
+Finally, lets look at the IMDB ratings for the beloved series.
+
+Here, we filter for distinct episode IMDB ratings and group them by book for graphing purposes. First, we create a single graph for each season with a smoothed line across the seasons.
+
+```{r ratings,echo=FALSE}
+ratings <- avatar %>%
+  distinct(book,chapter_num,imdb_rating) %>% # Filter for distinct episodes and capture imdb ratings
+  group_by(book)
+
+head(ratings)
+
+ratings$facet <- factor(ratings$book,levels = c("Water","Earth","Fire"))
+```
+
+```{r ratings graph 1}
+# Graph separate seasons separately
+ratings %>% ggplot(aes(x=chapter_num,y=imdb_rating)) +
+  geom_point(aes(color=book),size=2) +
+  scale_color_manual(values = c("dark green","red","blue")) +
+  facet_wrap(~facet) +
+  labs(x="Chapter",y="IMDB Rating",title = "IMDB Ratings by Book") +
+  guides(color = FALSE) +
+  geom_smooth(method = lm, formula = y ~ splines::bs(x, 3), se = FALSE) +
+  theme_ipsum()
+
+```
+
+You'll notice that, while the series as a whole is highly rated, every season finishes on a particularly high note. This becomes even more apparent when each season is graphed on top of one another.
+
+```{r ratings seasons,message=FALSE}
+ratings %>% ggplot(aes(x=chapter_num,y=imdb_rating,color=facet)) +
+  geom_point(aes(color=book),size=2) +
+  scale_color_manual(values = c("dark green","red","blue")) +
+  labs(x="Chapter",y="IMDB Rating",title = "IMDB Ratings by Book") +
+  geom_smooth(aes(group=facet),method = lm, formula = y ~ splines::bs(x, 3), se = FALSE) +
+  theme_ipsum()
+
+```
+
+Tidy Tuesday is an R community weekly event where users create exploritory data analysis information and visual aids. More information can be found here: https://github.com/rfordatascience/tidytuesday
